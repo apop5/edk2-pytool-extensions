@@ -318,6 +318,7 @@ def clone_repo(abs_file_system_path: os.PathLike, DepObj: dict) -> tuple:
     shallow = False
     branch = None
     reference = None
+    custom_depth = 5
 
     if "Commit" in DepObj:
         shallow = False
@@ -328,9 +329,13 @@ def clone_repo(abs_file_system_path: os.PathLike, DepObj: dict) -> tuple:
         branch = DepObj["Branch"]
     if "ReferencePath" in DepObj and os.path.exists(DepObj["ReferencePath"]):
         reference = Path(DepObj["ReferencePath"])
+    if "Depth" in DepObj:
+        custom_depth = DepObj["Depth"]
 
     # Used to generate clone params from flags
-    def _build_params_list(branch: str = None, shallow: str = None, reference: str = None) -> None:
+    def _build_params_list(
+        branch: str = None, shallow: str = None, reference: str = None, custom_depth: str = "5"
+    ) -> None:
         params = []
         if branch:
             shallow = True
@@ -338,7 +343,7 @@ def clone_repo(abs_file_system_path: os.PathLike, DepObj: dict) -> tuple:
             params.append(branch)
             params.append("--single-branch")
         if shallow:
-            params.append("--depth=5")
+            params.append(f"--depth={custom_depth}")
         if reference:
             params.append("--reference")
             params.append(reference.as_posix())
@@ -348,7 +353,9 @@ def clone_repo(abs_file_system_path: os.PathLike, DepObj: dict) -> tuple:
 
     # Run the command
     try:
-        repo = Repo.clone_from(DepObj["Url"], dest, multi_options=_build_params_list(branch, shallow, reference))
+        repo = Repo.clone_from(
+            DepObj["Url"], dest, multi_options=_build_params_list(branch, shallow, reference, custom_depth)
+        )
     except GitCommandError:
         repo = None
 
@@ -386,7 +393,6 @@ def checkout(
         update_ok (bool): If it is OK to update the commit or branch
         ignore_dep_state_mismatch (bool): Whether a mismatch will result in an exception or not.
         force (bool): If it is OK to update the commit or branch
-
     Raises:
         (Exception): dependency state mismatch if ignore_dep_state_mismatch = False
         (GitCommandError): If the commit or branch does not exist locally and on the remote
@@ -396,6 +402,9 @@ def checkout(
         reference = None
         if "ReferencePath" in dep and os.path.exists(dep["ReferencePath"]):
             reference = Path(dep["ReferencePath"])
+        limit_depth = ""
+        if "Depth" in dep:
+            limit_depth = f"--depth {dep['Depth']}"
         if "Commit" in dep:
             commit = dep["Commit"]
             if update_ok or force:
@@ -406,7 +415,9 @@ def checkout(
                     repo.git.fetch()
                     repo.git.checkout(commit)
                 if reference:
-                    repo.git.submodule("update", "--init", "--recursive", "--reference", reference.as_posix())
+                    repo.git.submodule(
+                        "update", "--init", "--recursive", limit_depth, "--reference", reference.as_posix()
+                    )
                 else:
                     repo.git.submodule("update", "--init", "--recursive")
             else:
@@ -439,7 +450,11 @@ def checkout(
                 if reference:
                     repo.git.submodule("update", "--init", "--recursive", "--reference", reference.as_posix())
                 else:
-                    repo.git.submodule("update", "--init", "--recursive")
+                    if "Depth" in dep:
+                        depth = f"--depth={dep['Depth']}"
+                        repo.git.submodule("update", "--init", "--recursive", depth)
+                    else:
+                        repo.git.submodule("update", "--init", "--recursive")
             else:
                 if details["Branch"] == dep["Branch"]:
                     logger.debug(f"Dependency {dep['Path']} state ok without update")
